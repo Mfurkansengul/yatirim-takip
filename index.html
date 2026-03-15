@@ -866,80 +866,144 @@ async function rEkonomi(){
     <div class="ph"><h2>🌍 Ekonomi</h2><button class="btn bb" onclick="rEkonomi()">🔄 Güncelle</button></div>
     <div style="text-align:center;padding:40px;color:var(--dm)">⏳ Veriler yükleniyor...</div>`;
 
+  // Önce Worker dene, başarısız olursa Frankfurter API dene (CORS açık, ücretsiz)
+  let data=null;
   try {
     const r=await fetch(CF.url()+'/ekonomi');
     const d=await r.json();
-    if(!d.ok) throw new Error(d.err||'Veri alınamadı');
-
-    const {usdtry,eurtry,gramAltin,bist,sp500,nasdaq,dji,vix}=d.data;
-
-    const ekCard=(baslik,ikon,veri,fmt,birim='')=>{
-      if(!veri) return `<div class="mc"><div class="ml">${ikon} ${baslik}</div><div class="mv" style="color:var(--dm)">—</div><div class="msub">Veri yok</div></div>`;
-      const renk=veri.changePct>=0?'var(--gr)':'var(--re)';
-      const ok=veri.changePct>=0?'▲':'▼';
-      return `<div class="mc">
-        <div class="ml">${ikon} ${baslik}</div>
-        <div class="mv" style="color:var(--mu);font-size:16px">${fmt(veri.price)}${birim}</div>
-        <div class="msub" style="color:${renk}">${ok} ${Math.abs(veri.changePct).toFixed(2)}% bugün</div>
-      </div>`;
-    };
-
-    const fmtTL=v=>new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v);
-    const fmtBIST=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:0}).format(v);
-    const fmtUS=v=>new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(v);
-
-    const detayCard=(ad,veri,fmt,br)=>{
-      if(!veri) return '';
-      return `<div style="background:var(--sf2);border:1px solid var(--b2);border-radius:var(--rs);padding:12px">
-        <div style="font-size:11px;color:var(--dm);margin-bottom:4px">${ad}</div>
-        <div style="font-size:18px;font-weight:800;color:var(--mu)">${fmt(veri.price)}${br}</div>
-        <div style="font-size:11px;margin-top:4px;color:${veri.changePct>=0?'var(--gr)':'var(--re)'}">
-          ${veri.changePct>=0?'▲':'▼'} ${Math.abs(veri.changePct).toFixed(2)}%
-          <span style="color:var(--dm);margin-left:6px">${veri.changePct>=0?'+':''}${fmt(Math.abs(veri.change))}${br}</span>
-        </div>
-      </div>`;
-    };
-
-    el.innerHTML=`
-      <div class="ph"><h2>🌍 Ekonomi</h2><button class="btn bb" onclick="rEkonomi()">🔄 Güncelle</button></div>
-      <div style="color:var(--dm);font-size:11px;margin-bottom:12px;text-align:right">Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}</div>
-
-      <div style="font-size:12px;font-weight:700;color:var(--dm);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">🇹🇷 Türkiye</div>
-      <div class="am" style="margin-bottom:16px">
-        ${ekCard('USD/TRY','💵',usdtry,v=>fmtTL(v)+' ₺')}
-        ${ekCard('EUR/TRY','💶',eurtry,v=>fmtTL(v)+' ₺')}
-        ${ekCard('Gram Altın','🥇',gramAltin,v=>fmtTL(v)+' ₺')}
-        ${ekCard('BIST 100','📊',bist,v=>fmtBIST(v),' puan')}
-      </div>
-
-      <div style="font-size:12px;font-weight:700;color:var(--dm);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">🇺🇸 ABD Piyasaları</div>
-      <div class="am" style="margin-bottom:16px">
-        ${ekCard('S&P 500','📈',sp500,v=>fmtUS(v),' puan')}
-        ${ekCard('NASDAQ 100','💻',nasdaq,v=>fmtUS(v),' puan')}
-        ${ekCard('Dow Jones','🏭',dji,v=>fmtUS(v),' puan')}
-        ${ekCard('VIX','😨',vix,v=>fmtUS(v),' puan')}
-      </div>
-
-      <div class="card">
-        <div style="font-size:13px;font-weight:700;color:var(--mu);margin-bottom:12px">📊 Detaylı Bilgi</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          ${detayCard('💵 USD/TRY',usdtry,fmtTL,' ₺')}
-          ${detayCard('💶 EUR/TRY',eurtry,fmtTL,' ₺')}
-          ${detayCard('🥇 Gram Altın',gramAltin,fmtTL,' ₺')}
-          ${detayCard('📊 BIST 100',bist,fmtBIST,' puan')}
-          ${detayCard('📈 S&P 500',sp500,fmtUS,' puan')}
-          ${detayCard('💻 NASDAQ 100',nasdaq,fmtUS,' puan')}
-          ${detayCard('🏭 Dow Jones',dji,fmtUS,' puan')}
-          ${detayCard('😨 VIX',vix,fmtUS,' puan')}
-        </div>
-      </div>`;
+    if(d.ok) data=d.data;
+    else throw new Error(d.err);
   } catch(e){
-    const msg=e.message==='Failed to fetch'?'Worker\'a ulaşılamadı — WiFi engelliyor, hotspot dene':'Veri alınamadı: '+e.message;
-    el.innerHTML=`
-      <div class="ph"><h2>🌍 Ekonomi</h2><button class="btn bb" onclick="rEkonomi()">🔄 Güncelle</button></div>
-      <div class="card"><div class="empty"><div class="ei">⚠️</div>${msg}</div></div>`;
-    _dbgAdd('error','rEkonomi: '+e.message);
+    _dbgAdd('warn','Worker ekonomi başarısız, direkt deneniyor: '+e.message);
+    try {
+      data = await fetchEkonomiDirect();
+    } catch(e2){
+      const msg=e2.message==='Failed to fetch'?'İnternet bağlantısını kontrol et':'Veri alınamadı: '+e2.message;
+      el.innerHTML=`
+        <div class="ph"><h2>🌍 Ekonomi</h2><button class="btn bb" onclick="rEkonomi()">🔄 Güncelle</button></div>
+        <div class="card"><div class="empty"><div class="ei">⚠️</div>${msg}</div></div>`;
+      _dbgAdd('error','rEkonomi: '+e2.message);
+      return;
+    }
   }
+
+  const {usdtry,eurtry,gramAltin,bist,sp500,nasdaq,dji,vix}=data;
+
+  const ekCard=(baslik,ikon,veri,fmt,birim='')=>{
+    if(!veri) return `<div class="mc"><div class="ml">${ikon} ${baslik}</div><div class="mv" style="color:var(--dm)">—</div><div class="msub">Veri yok</div></div>`;
+    const renk=veri.changePct>=0?'var(--gr)':'var(--re)';
+    const ok=veri.changePct>=0?'▲':'▼';
+    return `<div class="mc">
+      <div class="ml">${ikon} ${baslik}</div>
+      <div class="mv" style="color:var(--mu);font-size:16px">${fmt(veri.price)}${birim}</div>
+      <div class="msub" style="color:${renk}">${ok} ${Math.abs(veri.changePct).toFixed(2)}% bugün</div>
+    </div>`;
+  };
+
+  const fmtTL=v=>new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v);
+  const fmtBIST=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:0}).format(v);
+  const fmtUS=v=>new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(v);
+
+  const detayCard=(ad,veri,fmt,br)=>{
+    if(!veri) return '';
+    return `<div style="background:var(--sf2);border:1px solid var(--b2);border-radius:var(--rs);padding:12px">
+      <div style="font-size:11px;color:var(--dm);margin-bottom:4px">${ad}</div>
+      <div style="font-size:18px;font-weight:800;color:var(--mu)">${fmt(veri.price)}${br}</div>
+      <div style="font-size:11px;margin-top:4px;color:${veri.changePct>=0?'var(--gr)':'var(--re)'}">
+        ${veri.changePct>=0?'▲':'▼'} ${Math.abs(veri.changePct).toFixed(2)}%
+        <span style="color:var(--dm);margin-left:6px">${veri.changePct>=0?'+':''}${fmt(Math.abs(veri.change))}${br}</span>
+      </div>
+    </div>`;
+  };
+
+  el.innerHTML=`
+    <div class="ph"><h2>🌍 Ekonomi</h2><button class="btn bb" onclick="rEkonomi()">🔄 Güncelle</button></div>
+    <div style="color:var(--dm);font-size:11px;margin-bottom:12px;text-align:right">Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}</div>
+    <div style="font-size:12px;font-weight:700;color:var(--dm);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">🇹🇷 Türkiye</div>
+    <div class="am" style="margin-bottom:16px">
+      ${ekCard('USD/TRY','💵',usdtry,v=>fmtTL(v)+' ₺')}
+      ${ekCard('EUR/TRY','💶',eurtry,v=>fmtTL(v)+' ₺')}
+      ${ekCard('Gram Altın','🥇',gramAltin,v=>fmtTL(v)+' ₺')}
+      ${ekCard('BIST 100','📊',bist,v=>fmtBIST(v),' puan')}
+    </div>
+    <div style="font-size:12px;font-weight:700;color:var(--dm);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">🇺🇸 ABD Piyasaları</div>
+    <div class="am" style="margin-bottom:16px">
+      ${ekCard('S&P 500','📈',sp500,v=>fmtUS(v),' puan')}
+      ${ekCard('NASDAQ 100','💻',nasdaq,v=>fmtUS(v),' puan')}
+      ${ekCard('Dow Jones','🏭',dji,v=>fmtUS(v),' puan')}
+      ${ekCard('VIX','😨',vix,v=>fmtUS(v),' puan')}
+    </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;color:var(--mu);margin-bottom:12px">📊 Detaylı Bilgi</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        ${detayCard('💵 USD/TRY',usdtry,fmtTL,' ₺')}
+        ${detayCard('💶 EUR/TRY',eurtry,fmtTL,' ₺')}
+        ${detayCard('🥇 Gram Altın',gramAltin,fmtTL,' ₺')}
+        ${detayCard('📊 BIST 100',bist,fmtBIST,' puan')}
+        ${detayCard('📈 S&P 500',sp500,fmtUS,' puan')}
+        ${detayCard('💻 NASDAQ 100',nasdaq,fmtUS,' puan')}
+        ${detayCard('🏭 Dow Jones',dji,fmtUS,' puan')}
+        ${detayCard('😨 VIX',vix,fmtUS,' puan')}
+      </div>
+    </div>`;
+}
+
+// Direkt tarayıcıdan ekonomi verisi çek (CORS açık kaynaklar)
+async function fetchEkonomiDirect(){
+  const result={usdtry:null,eurtry:null,gramAltin:null,bist:null,sp500:null,nasdaq:null,dji:null,vix:null};
+
+  // Frankfurter API — döviz kurları (CORS açık, ücretsiz)
+  try{
+    const r=await fetch('https://api.frankfurter.app/latest?from=USD&to=TRY,EUR');
+    if(r.ok){
+      const d=await r.json();
+      const usd2try=d.rates?.TRY;
+      const eur2usd=d.rates?.EUR?1/d.rates.EUR:null;
+      if(usd2try){
+        result.usdtry={price:usd2try,changePct:0,change:0};
+      }
+      if(eur2usd&&usd2try){
+        result.eurtry={price:eur2usd*usd2try,changePct:0,change:0};
+      }
+    }
+  }catch(e){_dbgAdd('warn','Frankfurter: '+e.message);}
+
+  // Stooq — altın (CORS açık)
+  try{
+    const r=await fetch('https://stooq.com/q/l/?s=xautry&f=sd2t2ohlcv&h&e=csv');
+    if(r.ok){
+      const csv=await r.text();
+      const cols=csv.trim().split('\n')[1]?.split(',');
+      const close=parseFloat(cols?.[6]);
+      const open=parseFloat(cols?.[3]);
+      if(!isNaN(close)&&close>0){
+        const gramTL=close/31.1035;
+        const gramOpen=open/31.1035;
+        result.gramAltin={price:gramTL,changePct:gramOpen>0?((gramTL-gramOpen)/gramOpen)*100:0,change:gramTL-gramOpen};
+      }
+    }
+  }catch(e){_dbgAdd('warn','Stooq altin: '+e.message);}
+
+  // Stooq — S&P 500, BIST
+  const stooqSymbols=[
+    ['sp500','^spx'],['nasdaq','^ndx'],['dji','^dji'],['bist','wig20'] // bist için alternatif
+  ];
+  await Promise.all(stooqSymbols.map(async ([key,sym])=>{
+    try{
+      const r=await fetch('https://stooq.com/q/l/?s='+sym+'&f=sd2t2ohlcv&h&e=csv');
+      if(!r.ok) return;
+      const csv=await r.text();
+      const cols=csv.trim().split('\n')[1]?.split(',');
+      const close=parseFloat(cols?.[6]);
+      const open=parseFloat(cols?.[3]);
+      if(!isNaN(close)&&close>0){
+        result[key]={price:close,changePct:open>0?((close-open)/open)*100:0,change:close-open};
+      }
+    }catch(e){}
+  }));
+
+  if(!result.usdtry&&!result.gramAltin) throw new Error('Hiçbir veri alınamadı');
+  return result;
 }
 function rRealizasyon(){
   const topKar = RZ.reduce((s,x)=>s+x.kar, 0);
