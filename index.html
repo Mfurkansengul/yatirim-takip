@@ -351,7 +351,59 @@ async function testCF(url,user,pass){
 /* ══════════════════════════════════════════════════
    AUTH STATE
 ══════════════════════════════════════════════════ */
-let _loggedIn = false; // session içi flag, sayfa kapatılınca sıfırlanır
+// ── Oturum Yönetimi ──
+// Sayfa yenilenmesinde oturum korunur, hareketsizlik süresine göre kapanır
+const SESSION_KEY = 'SESS_AT'; // Son aktivite zamanı
+let _loggedIn = false;
+let _activityTimer = null;
+
+function sessLogin(){
+  _loggedIn = true;
+  LS.put(SESSION_KEY, Date.now().toString());
+  startActivityWatcher();
+}
+
+function sessLogout(auto=false){
+  _loggedIn = false;
+  LS.del(SESSION_KEY);
+  stopActivityWatcher();
+  if(auto) toast('Hareketsizlik nedeniyle oturum kapatıldı','i',4000);
+  showLogin(LS.str('AU',''));
+}
+
+function sessCheck(){
+  // Kayıtlı oturum var mı?
+  const at = parseInt(LS.str(SESSION_KEY,'0'));
+  if(!at) return false;
+  const sutredk = n(LS.str('AUTO_LOGOUT_MIN','0')); // 0 = hiç kapatma
+  if(sutredk <= 0) return true; // Otomatik kapatma kapalı
+  const gecenDk = (Date.now() - at) / 60000;
+  return gecenDk < sutredk;
+}
+
+function startActivityWatcher(){
+  stopActivityWatcher();
+  const sutredk = n(LS.str('AUTO_LOGOUT_MIN','0'));
+  if(sutredk <= 0) return; // Kapalı
+  const events = ['click','keydown','scroll','touchstart','mousemove'];
+  const updateActivity = () => {
+    if(_loggedIn) LS.put(SESSION_KEY, Date.now().toString());
+  };
+  events.forEach(e => document.addEventListener(e, updateActivity, {passive:true}));
+  // Her dakika kontrol et
+  _activityTimer = setInterval(()=>{
+    if(!_loggedIn) return;
+    const at = parseInt(LS.str(SESSION_KEY,'0'));
+    const sutredk2 = n(LS.str('AUTO_LOGOUT_MIN','0'));
+    if(sutredk2 <= 0) return;
+    const gecenDk = (Date.now() - at) / 60000;
+    if(gecenDk >= sutredk2) sessLogout(true);
+  }, 30000); // 30 saniyede bir kontrol
+}
+
+function stopActivityWatcher(){
+  if(_activityTimer){ clearInterval(_activityTimer); _activityTimer=null; }
+}
 
 /* ══════════════════════════════════════════════════
    STATE
@@ -2093,6 +2145,21 @@ function rAyar(){
       </div>
 
       <div class="ss-sec">
+        <div class="ss-title">🔐 Oturum Güvenliği</div>
+        <div class="ss-row" style="align-items:flex-end">
+          <div>
+            <div class="ss-label" style="text-transform:none;letter-spacing:0;font-size:13px">Otomatik Oturum Kapatma</div>
+            <div class="ss-sub">Hareketsiz kalındığında oturumu kapat. 0 = hiç kapatma (sayfa yenilemede oturum korunur)</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <input type="number" class="if" id="auto_logout_min" value="${LS.str('AUTO_LOGOUT_MIN','0')}" placeholder="0" min="0" step="5" style="width:80px;text-align:right">
+            <span style="color:var(--dm);font-size:12px">dk</span>
+            <button class="btn bgh" onclick="saveAutoLogout()">Kaydet</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ss-sec">
         <div class="ss-title">🔔 Bildirimler</div>
         ${Notification.permission==='granted'
           ? `<div style="background:#0d2010;border:1px solid #2ecc8f33;border-radius:var(--rs);padding:9px 13px;margin-bottom:14px;font-size:12px;color:#2ecc8f">✓ Tarayıcı bildirimleri aktif</div>`
@@ -2213,6 +2280,15 @@ function cfReset(){
 /* ══════════════════════════════════════════════════
    BİLDİRİMLER
 ══════════════════════════════════════════════════ */
+function saveAutoLogout(){
+  const val=document.getElementById('auto_logout_min')?.value||'0';
+  LS.put('AUTO_LOGOUT_MIN',val);
+  stopActivityWatcher();
+  startActivityWatcher();
+  const dk=n(val);
+  toast(dk>0?`Otomatik çıkış: ${dk} dakika hareketsizlikte`:'Otomatik çıkış kapalı','s');
+}
+
 function saveHALimit(){
   const val=document.getElementById('ha_limit_val')?.value;
   if(!val||n(val)<=0){toast('Geçerli bir tutar gir','e');return;}
@@ -2519,6 +2595,15 @@ function authBoot(){
   const pass=LS.str('PASS','');
   if(!user||!pass){
     showSetup();
+  } else if(sessCheck()){
+    // Geçerli oturum var — direkt aç
+    sessLogin();
+    startActivityWatcher();
+    document.getElementById('login-wrap').style.display='none';
+    render();
+    if(CF.on()){
+      cloudPull().then(ok=>{if(ok)render();});
+    }
   } else {
     showLogin(user);
   }
@@ -2581,7 +2666,7 @@ async function doSetup(){
     // NOT_FOUND: yeni kullanıcı, ok: aynı kullanıcı adı + doğru şifre (mevcut hesaba giriş)
     LS.put('AU',u);
     LS.put('PASS',p);
-    _loggedIn=true;
+    sessLogin();
     document.getElementById('login-wrap').style.display='none';
     if(d.ok && d.data){
       // Mevcut hesap — verileri yükle
@@ -2596,7 +2681,7 @@ async function doSetup(){
   } catch(e){
     // Offline — sadece local kaydet
     LS.put('AU',u);LS.put('PASS',p);
-    _loggedIn=true;
+    sessLogin();
     document.getElementById('login-wrap').style.display='none';
     render();
   }
@@ -2679,7 +2764,7 @@ async function doLoginFull(){
     HA=d.data.HA||[];HI=migrateHI(d.data.HI||[]);AL=d.data.AL||[];RZ=d.data.RZ||[];
     LS.set('HA',HA);LS.set('HI',HI);LS.set('AL',AL);LS.set('RZ',RZ);
     if(d.data.LU)LS.put('LU',d.data.LU);
-    _loggedIn=true;
+    sessLogin();
     document.getElementById('login-wrap').style.display='none';
     toast('☁ Giriş başarılı, veriler yüklendi ✓','s');
     render();
@@ -2701,7 +2786,7 @@ async function doLogin(){
     document.getElementById('li_pass').focus();
     return;
   }
-  _loggedIn=true;
+  sessLogin();
   document.getElementById('login-wrap').style.display='none';
   render();
   // Cloud sync varsa veriyi çek
@@ -2740,8 +2825,7 @@ function emergencyReset(){
 
 /* Çıkış */
 function logout(){
-  _loggedIn=false;
-  showLogin(LS.str('AU',''));
+  sessLogout();
 }
 
 /* ══════════════════════════════════════════════════
