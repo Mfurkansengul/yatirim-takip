@@ -506,11 +506,12 @@ function rDash(){
   }
 
   // HA limit takibi
-  const HA_LIMIT=7500;
+  const HA_LIMIT=n(LS.str('HA_LIMIT','7500'));
+  const haLimitAktif=LS.str('HA_LIMIT_ON','1')==='1';
   const haAktifMaly=HA.filter(x=>x.durum!=='satildi').reduce((s,x)=>s+n(x.giris)*n(x.lot),0);
   const haKalan=Math.max(0,HA_LIMIT-haAktifMaly);
-  const haPct=Math.min(100,(haAktifMaly/HA_LIMIT)*100);
-  const haLimitWidget=`
+  const haPct=Math.min(100,HA_LIMIT>0?(haAktifMaly/HA_LIMIT)*100:0);
+  const haLimitWidget=haLimitAktif?`
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:13px;font-weight:700;color:var(--mu)">🚀 Halka Arz Limiti</div>
@@ -523,7 +524,7 @@ function rDash(){
         <span style="color:${haPct>90?'var(--re)':'var(--dm)'}">%${haPct.toFixed(0)} kullanıldı</span>
         <span style="color:var(--gr)">Kalan: <b>${tl(haKalan)}</b></span>
       </div>
-    </div>`;
+    </div>`:'';
 
   const noticeBanner = lu
     ? `<div class="notice notice-ok"><span style="font-size:12px;color:var(--gr)">✓ Son fiyat güncellemesi: <b>${lu}</b></span><button class="btn bb" onclick="go('fiyat')">Güncelle</button></div>`
@@ -2065,6 +2066,33 @@ function rAyar(){
       </div>
 
       <div class="ss-sec">
+        <div class="ss-title">🚀 Halka Arz Limiti</div>
+        <div class="ss-row">
+          <div>
+            <div class="ss-label" style="text-transform:none;letter-spacing:0;font-size:13px">Limit göstergesini aktif et</div>
+            <div class="ss-sub">Özet sayfasında halka arz harcama çubuğu gösterilir</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0">
+            <input type="checkbox" id="ha_limit_on" ${LS.str('HA_LIMIT_ON','1')==='1'?'checked':''} onchange="LS.put('HA_LIMIT_ON',this.checked?'1':'0');render();"
+              style="opacity:0;width:0;height:0;position:absolute">
+            <span style="position:absolute;cursor:pointer;inset:0;background:${LS.str('HA_LIMIT_ON','1')==='1'?'var(--pu)':'var(--b2)'};border-radius:24px;transition:.3s" id="ha_limit_span">
+              <span style="position:absolute;height:18px;width:18px;left:${LS.str('HA_LIMIT_ON','1')==='1'?'23px':'3px'};bottom:3px;background:#fff;border-radius:50%;transition:.3s"></span>
+            </span>
+          </label>
+        </div>
+        <div class="ss-row" style="margin-top:10px;align-items:flex-end">
+          <div>
+            <div class="ss-label" style="text-transform:none;letter-spacing:0;font-size:13px">Limit Tutarı (TL)</div>
+            <div class="ss-sub">Aylık halka arz bütçen</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="number" class="if" id="ha_limit_val" value="${LS.str('HA_LIMIT','7500')}" placeholder="7500" step="500" style="width:110px;text-align:right">
+            <button class="btn bgh" onclick="saveHALimit()">Kaydet</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="ss-sec">
         <div class="ss-title">🔔 Bildirimler</div>
         ${Notification.permission==='granted'
           ? `<div style="background:#0d2010;border:1px solid #2ecc8f33;border-radius:var(--rs);padding:9px 13px;margin-bottom:14px;font-size:12px;color:#2ecc8f">✓ Tarayıcı bildirimleri aktif</div>`
@@ -2185,6 +2213,14 @@ function cfReset(){
 /* ══════════════════════════════════════════════════
    BİLDİRİMLER
 ══════════════════════════════════════════════════ */
+function saveHALimit(){
+  const val=document.getElementById('ha_limit_val')?.value;
+  if(!val||n(val)<=0){toast('Geçerli bir tutar gir','e');return;}
+  LS.put('HA_LIMIT',val);
+  toast('Limit kaydedildi: '+tl(n(val)),'s');
+  render();
+}
+
 function toggleNotif(key, val){
   LS.put(key, val?'1':'0');
   toast(val?'Bildirim açıldı ✓':'Bildirim kapatıldı','i',1500);
