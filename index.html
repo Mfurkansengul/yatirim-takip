@@ -1314,7 +1314,6 @@ async function fetchLivePrices(){
   const btn=document.getElementById('live-btn');
   if(btn){btn.disabled=true;btn.textContent='⏳ Çekiliyor...';}
 
-  // BIST ve global hisseleri ayır
   const bistTickers=[...new Set([
     ...HI.filter(x=>(x.borsa||'BIST')==='BIST').map(x=>x.kod.toUpperCase()),
     ...HA.filter(x=>x.durum!=='satildi'&&x.kod).map(x=>x.kod.toUpperCase())
@@ -1330,73 +1329,121 @@ async function fetchLivePrices(){
     return;
   }
 
+  // Önce Worker dene, başarısız olursa doğrudan tarayıcıdan çek
+  let prices={};
+  let source='worker';
   try {
     const r=await fetch(CF.url()+'/prices',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        bist: bistTickers,
-        global: globalTickers,
-        altin: AL.length>0,
-        usdtry: hasGlobal, // global hisse varsa kur da çek
-      })
+      body:JSON.stringify({bist:bistTickers,global:globalTickers,altin:AL.length>0,usdtry:hasGlobal})
     });
     const d=await r.json();
-    if(!d.ok){toast('Fiyat çekilemedi: '+d.err,'e');_dbgAdd('error','fetchLivePrices: '+d.err);return;}
-
-    const prices=d.prices;
-    let updated=0;
-
-    // BIST hisseleri güncelle
-    HI.filter(x=>(x.borsa||'BIST')==='BIST').forEach(x=>{
-      const t=x.kod.toUpperCase();
-      if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
-    });
-
-    // Global hisseleri güncelle (USD)
-    HI.filter(x=>x.borsa==='GLOBAL').forEach(x=>{
-      const t=x.kod.toUpperCase();
-      if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
-    });
-
-    // Halka arz güncelle (BIST)
-    HA.filter(x=>x.durum!=='satildi'&&x.kod).forEach(x=>{
-      const t=x.kod.toUpperCase();
-      if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
-    });
-
-    // USDTRY kuru kaydet
-    if(prices['USDTRY']?.price){
-      LS.put('USDTRY', prices['USDTRY'].price.toFixed(4));
-    }
-
-    // Altın gram TL
-    if(prices['ALTIN']?.price){
-      const gramTL=prices['ALTIN'].price.toFixed(2);
-      AL=AL.map(x=>({...x,gf:gramTL}));
-      updated++;
-    }
-
-    if(updated===0){
-      toast('Fiyat bulunamadı — hisse kodlarını kontrol et','e');
-    } else {
-      dbSave('HI',HI,true);dbSave('HA',HA,true);dbSave('AL',AL,true);
-      LS.put('LU',now());
-      savePortfolioSnapshot(); // Portföy geçmişine kaydet
-      const kurInfo=prices['USDTRY']?` · Kur: ${n(LS.str('USDTRY','0')).toFixed(2)} TL`:'';
-      toast(`✓ ${updated} fiyat güncellendi${kurInfo}`,'s');
-      checkNotifs(prices);
-      render();
-    }
+    if(d.ok) prices=d.prices;
+    else throw new Error(d.err);
   } catch(e){
-    const msg = e.message==='Failed to fetch'
-      ? 'Worker\'a ulaşılamadı — WiFi engelliyor olabilir, telefon hotspot dene'
-      : 'Bağlantı hatası: '+e.message;
-    toast(msg,'e',5000);
-    _dbgAdd('error','fetchLivePrices catch: '+e.message);
-  } finally {
-    if(btn){btn.disabled=false;btn.textContent='📡 Fiyatları Çek';}
+    // Worker başarısız — doğrudan Yahoo Finance'den çek
+    source='direct';
+    _dbgAdd('warn','Worker başarısız, direkt çekiliyor: '+e.message);
+    try {
+      prices = await fetchDirectPrices(bistTickers, globalTickers, AL.length>0, hasGlobal);
+    } catch(e2){
+      const msg=e2.message==='Failed to fetch'
+        ?'Fiyat çekilemedi — internet bağlantısını kontrol et'
+        :'Bağlantı hatası: '+e2.message;
+      toast(msg,'e',5000);
+      _dbgAdd('error','fetchDirectPrices: '+e2.message);
+      if(btn){btn.disabled=false;btn.textContent='📡 Fiyatları Çek';}
+      return;
+    }
   }
+
+  let updated=0;
+  HI.filter(x=>(x.borsa||'BIST')==='BIST').forEach(x=>{
+    const t=x.kod.toUpperCase();
+    if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
+  });
+  HI.filter(x=>x.borsa==='GLOBAL').forEach(x=>{
+    const t=x.kod.toUpperCase();
+    if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
+  });
+  HA.filter(x=>x.durum!=='satildi'&&x.kod).forEach(x=>{
+    const t=x.kod.toUpperCase();
+    if(prices[t]?.price){x.guncel=prices[t].price.toFixed(2);updated++;}
+  });
+  if(prices['USDTRY']?.price) LS.put('USDTRY',prices['USDTRY'].price.toFixed(4));
+  if(prices['ALTIN']?.price){
+    const gramTL=prices['ALTIN'].price.toFixed(2);
+    AL=AL.map(x=>({...x,gf:gramTL}));
+    updated++;
+  }
+
+  if(updated===0){
+    toast('Fiyat bulunamadı — hisse kodlarını kontrol et','e');
+  } else {
+    dbSave('HI',HI,true);dbSave('HA',HA,true);dbSave('AL',AL,true);
+    LS.put('LU',now());
+    savePortfolioSnapshot();
+    const kurInfo=prices['USDTRY']?` · Kur: ${n(LS.str('USDTRY','0')).toFixed(2)} TL`:'';
+    const src=source==='direct'?' (direkt)':'';
+    toast(`✓ ${updated} fiyat güncellendi${kurInfo}${src}`,'s');
+    checkNotifs(prices);
+    render();
+  }
+  if(btn){btn.disabled=false;btn.textContent='📡 Fiyatları Çek';}
+}
+
+// Doğrudan tarayıcıdan Yahoo Finance çek (Worker bypass)
+async function fetchDirectPrices(bistTickers, globalTickers, altin, usdtry){
+  const result={};
+  const h={'Accept':'*/*'};
+
+  async function yFetch(symbol){
+    try{
+      const url=`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
+      const r=await fetch(url,{headers:h});
+      if(!r.ok) return null;
+      const data=await r.json();
+      const meta=data?.chart?.result?.[0]?.meta;
+      if(!meta) return null;
+      const price=meta.regularMarketPrice??meta.previousClose;
+      return price>0?{price,name:meta.shortName||symbol,prev:meta.previousClose}:null;
+    }catch(e){return null;}
+  }
+
+  // BIST
+  await Promise.all(bistTickers.map(async kod=>{
+    const d=await yFetch(kod+'.IS');
+    if(d) result[kod]={...d,borsa:'BIST'};
+  }));
+
+  // Global
+  await Promise.all(globalTickers.map(async kod=>{
+    const d=await yFetch(kod);
+    if(d) result[kod]={...d,borsa:'GLOBAL'};
+  }));
+
+  // USDTRY
+  if(usdtry){
+    const d=await yFetch('USDTRY=X');
+    if(d) result['USDTRY']={price:d.price};
+  }
+
+  // Altın: Stooq XAUTRY (CORS açık)
+  if(altin){
+    try{
+      const r=await fetch('https://stooq.com/q/l/?s=xautry&f=sd2t2ohlcv&h&e=csv',{headers:h});
+      if(r.ok){
+        const csv=await r.text();
+        const cols=csv.trim().split('\n')[1]?.split(',');
+        const close=parseFloat(cols?.[6]);
+        if(!isNaN(close)&&close>0) result['ALTIN']={price:close/31.1035,name:'Gram Altın TL'};
+      }
+    }catch(e){}
+  }
+
+  if(!Object.keys(result).length) throw new Error('Hiçbir fiyat alınamadı');
+  return result;
 }
 
 function saveAll(){
